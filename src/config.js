@@ -11,7 +11,7 @@ var config = {};
  * GitHub Repository to fetch issues from. Multiple repositories can be specified comma separated.
  * @type {string}
  */
-config.repository = 'piwik/piwik';
+config.repository = 'MathsPathway/app';
 
 /**
  * See https://developer.github.com/v3/oauth_authorizations/#create-a-new-authorization
@@ -38,4 +38,4 @@ config.milestonesToIgnore = ['3.0.0(.*)'];
  *
  * @type {Array}
  */
-config.sortByLabels = ['Bug', 'Task', 'Enhancement', 'c: Performance', 'c: Security', 'c: New Plugin', 'Major', 'Critical']
+config.sortByLabels = ['feature', 'bug', 'Task', 'Enhancement', 'c: Performance', 'c: Security', 'c: New Plugin', 'Major', 'Critical']

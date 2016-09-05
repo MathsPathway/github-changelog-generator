@@ -83,13 +83,28 @@ function renderIssues(repository, issues)
     }
 
     var $issues = $('#issues');
+    
+    var bugs = _.filter(issues, function(i) { return _.some(i.labels, function(label) { return label.name == "bug"; }); });
+    var features = _.filter(issues, function(i) { return _.some(i.labels, function(label) { return label.name == "feature"; }); });
 
-    $issues.append("\n\n<br/><div class='notAnIssue'>" + repository + "</div>\n\n");
+    $issues.append("\n\n<br/><div class='notAnIssue'>" + repository + " - Features Completed</div>\n\n");
 
-    if (issues && issues.length === 0) {
-        $issues.append('<li class="notAnIssue">No issues found</li>' + "\n");
+    if (features && features.length === 0) {
+        $issues.append('<li class="notAnIssue">No features found</li>' + "\n");
     } else {
-        $.each(issues, function (index, issue) {
+        $.each(features, function (index, issue) {
+            var description = formatChangelogEntry(issue, issue.authors);
+
+            $('#issues').append('<li>' + description + '</li>' + "\n");
+        });
+    }
+    
+    $issues.append("\n\n<br/><div class='notAnIssue'>" + repository + " - Bugs Fixed</div>\n\n");
+    
+    if (bugs && bugs.length === 0) {
+        $issues.append('<li class="notAnIssue">No bugs found</li>' + "\n");
+    } else {
+        $.each(bugs, function (index, issue) {
             var description = formatChangelogEntry(issue, issue.authors);
 
             $('#issues').append('<li>' + description + '</li>' + "\n");
