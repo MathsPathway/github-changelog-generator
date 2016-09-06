@@ -24,6 +24,7 @@ config.oauthToken = '';
  * @type {Array}
  */
 config.labelsToIgnore = ['invalid', 'wontfix', 'duplicate', 'worksforme', 'answered', 'not-in-changelog'];
+config.labelsToNotReport = ['priority', 'epic', 'security'];
 
 /**
  * Ignore issues that are assigned to one of these milestones. Supports regex.
@@ -39,3 +40,10 @@ config.milestonesToIgnore = ['3.0.0(.*)'];
  * @type {Array}
  */
 config.sortByLabels = ['feature', 'bug', 'Task', 'Enhancement', 'c: Performance', 'c: Security', 'c: New Plugin', 'Major', 'Critical']
+
+config.labelFriendlyNames = {
+  "bug": "Bugs",
+  "optimization": "Optimisations",
+  "feature": "Features",
+  "hotfix": "Hot Fixes"
+};

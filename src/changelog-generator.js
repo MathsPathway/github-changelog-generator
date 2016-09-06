@@ -7,6 +7,7 @@
 
 var limitExceeded = false;
 var repositoriesDone;
+var releases = [];
 
 function setup(repo, token)
 {
@@ -17,6 +18,29 @@ function setup(repo, token)
     if (token) {
         $('#authtoken').val(token);
     }
+
+    var releases = [];
+    $.each(getRepositories(), function (index, repository) {
+          getReleases(repository, releases);
+      });
+    
+    $("#goReleases").on('click', function() {
+
+        var releaseTime = $("#releases").val();
+
+        if (!releaseTime) {
+            alert('Please select a release.');
+            return;
+        }
+
+        //var isoDate = date + 'T' + time + ':00Z';
+
+        onStart();
+
+        $.each(getRepositories(), function (index, repository) {
+            fetchIssuesSince(repository, [], releaseTime, 1);
+        });
+    });
 
     $("#go").on('click', function() {
 
@@ -50,6 +74,25 @@ function setup(repo, token)
     });
 }
 
+function getReleases(repository, releases) {
+    callGithubApi({
+        service : 'repos/' + repository + '/releases',
+        success : function(result, xhr) {
+
+            $.each(result, function (index, release) {
+                releases.push(release);
+            });
+            renderReleases(releases);
+        }
+    }, true);
+}
+
+function renderReleases(releases) {
+    $.each(releases, function (index, release) {
+        $("#releases").append($('<option></option>').val(release.published_at).html(release.name));
+    });
+}
+
 function getSortRankingOfLabel(memo, label)
 {
     var value = _.lastIndexOf(config.sortByLabels, label, false);
@@ -76,6 +119,22 @@ function sortIssues(issueA, issueB)
     return indexA > indexB ? -1 : 1;
 }
 
+function sortLabels(labelA, labelB)
+{
+    var indexA = _.lastIndexOf(config.sortByLabels, labelA, false);
+    var indexB = _.lastIndexOf(config.sortByLabels, labelB, false);
+
+    if (indexA === indexB) {
+        return 0;
+    }
+
+    return indexA > indexB ? -1 : 1;
+}
+
+function getTagFriendlyName(tag) {
+  return config.labelFriendlyNames[tag];
+}
+
 function renderIssues(repository, issues)
 {
     if (config.sortByLabels.length) {
@@ -84,7 +143,34 @@ function renderIssues(repository, issues)
 
     var $issues = $('#issues');
     
-    var bugs = _.filter(issues, function(i) { return _.some(i.labels, function(label) { return label.name == "bug"; }); });
+    var allLabels = [];
+    $.each(issues, function(index, issue) {
+    var issueLabels = getLabelsFromIssue(issue);
+      var filteredLabels = _.filter(issueLabels, function(l) { return !_.some(config.labelsToNotReport, function (ignore) { return ignore == l; }); });
+        allLabels = _.union(allLabels, filteredLabels);
+    });
+    
+    allLabels.sort(sortLabels);
+    
+    $.each(allLabels, function(index, label) {
+    console.log(label);
+      var matchingIssues = _.filter(issues, function(i) { return _.some(i.labels, function(issueLabel) { return issueLabel.name == label; }); });
+      
+      $issues.append("\n\n<br/><div class='notAnIssue'>" + getTagFriendlyName(label) + "</div>\n\n");
+
+    if (matchingIssues && matchingIssues.length === 0) {
+        $issues.append('<li class="notAnIssue">No ' + getTagFriendlyName(label) + ' found</li>' + "\n");
+      } else {
+          $.each(matchingIssues, function (index, issue) {
+              var description = formatChangelogEntry(issue, issue.authors);
+
+              $('#issues').append('<li>' + description + '</li>' + "\n");
+          });
+      }
+      
+    });
+    
+   /* var bugs = _.filter(issues, function(i) { return _.some(i.labels, function(label) { return label.name == "bug"; }); });
     var features = _.filter(issues, function(i) { return _.some(i.labels, function(label) { return label.name == "feature"; }); });
 
     $issues.append("\n\n<br/><div class='notAnIssue'>" + repository + " - Features Completed</div>\n\n");
@@ -109,7 +195,7 @@ function renderIssues(repository, issues)
 
             $('#issues').append('<li>' + description + '</li>' + "\n");
         });
-    }
+    }*/
 }
 
 function onStart()
@@ -118,6 +204,7 @@ function onStart()
 
     $('#issues').html('');
     $('#go').attr('disabled', 'disabled');
+    $('#goReleases').attr('disabled', 'disabled');
     $('#status').text('Fetching issues in progress');
     $('#numIssues').text('');
 }
@@ -131,6 +218,7 @@ function onEnd(repository)
     }
 
     $('#go').attr('disabled', null);
+    $('#goReleases').attr('disabled', null);
     $('#status').text('');
 
     var numIssuesClosed = $('#issues').find('li:not(.notAnIssue)').length;
@@ -156,6 +244,7 @@ function onLimitExceeded()
     $('#status').text('Limit exceeded!');
     $('#limit').addClass('exceeded');
     $('#go').attr('disabled', null);
+    $('#goReleases').attr('disabled', null);
 }
 
 function formatAuthor(user)
@@ -174,7 +263,7 @@ function formatChangelogEntry(issue, authors)
 {
     var description = '<a href="' + issue.html_url + '">#' + issue.number + '</a> ' + encodedStr(issue.title);
 
-    if (authors.length) {
+    if (authors && authors.length) {
         description += ' [by ' + authors.join(', ') + ']';
     }
 
@@ -203,12 +292,15 @@ function fetchIssuesSince (repository, issues, isoDate, page)
                     return;
                 }
 
-                if (isPullRequest(issue) && !isPullRequestMerged(issue)) {
-                    console.log('Ignoring issue as it was not merged', issue);
+                if (isPullRequest(issue)) { // && !isPullRequestMerged(issue)) {
+                    //console.log('Ignoring issue as it was not merged', issue);
                     return;
                 }
 
-                issue.authors = getCommitter(issue, 1);
+                var showAuthors = $("#showAuthors").is(":checked");
+                if (showAuthors) {
+                  issue.authors = getCommitter(issue, 1);
+                }
                 issues.push(issue);
             });
 
