@@ -24,7 +24,8 @@ function setup(repo, token)
           getReleases(repository, releases);
       });
     
-    $("#goReleases").on('click', function() {
+
+    $("#goReleases").on('click', function () {
 
         var releaseTime = $("#releases").val();
 
@@ -39,6 +40,27 @@ function setup(repo, token)
 
         $.each(getRepositories(), function (index, repository) {
             fetchIssuesSince(repository, [], releaseTime, 1);
+            
+        });
+    });
+
+
+    $("#goBetweenReleases").on('click', function() {
+
+        var release1 = $("#releasesB1").val();
+        var release2 = $("#releasesB2").val()
+
+        if (!release1 || ! release2 || release1===release2) {
+            alert('Please select releases.');
+            return;
+        }
+
+        //var isoDate = date + 'T' + time + ':00Z';
+
+        onStart();
+
+        $.each(getRepositories(), function (index, repository) {
+            fetchIssuesFromTaggedCommits(repository, [], release1, release2);
         });
     });
 
@@ -90,7 +112,25 @@ function getReleases(repository, releases) {
 function renderReleases(releases) {
     $.each(releases, function (index, release) {
         $("#releases").append($('<option></option>').val(release.published_at).html(release.name));
+
+        $("#releasesB1").append($('<option></option>').val(release.tag_name).html(release.name));
+        $("#releasesB2").append($('<option></option>').val(release.tag_name).html(release.name));
     });
+}
+
+
+function getStoryPoints(repository, repoId, issueId, name, arr, callback) {
+    if (!getZenhubAuthToken()) {
+        callback(0, name, arr);
+    }
+    callZenhubApi({
+        service: "repositories/" + repoId + "/issues/" + issueId,
+        success: function (result, xhr) {
+            console.log("adding " + result.estimate.value + " to " + name);
+            callback(result.estimate.value, name, arr);
+        }
+    });
+
 }
 
 function getSortRankingOfLabel(memo, label)
@@ -152,21 +192,21 @@ function renderIssues(repository, issues)
     
     allLabels.sort(sortLabels);
     
-    $.each(allLabels, function(index, label) {
-    console.log(label);
+    $.each(allLabels, function (index, label) {
+
       var matchingIssues = _.filter(issues, function(i) { return _.some(i.labels, function(issueLabel) { return issueLabel.name == label; }); });
       
-      $issues.append("\n\n<br/><div class='notAnIssue'>" + getTagFriendlyName(label) + "</div>\n\n");
-
+      $issues.append("\n\n<br/><div class='notAnIssue'>### " + getTagFriendlyName(label) + "</div>\n\n");
     if (matchingIssues && matchingIssues.length === 0) {
         $issues.append('<li class="notAnIssue">No ' + getTagFriendlyName(label) + ' found</li>' + "\n");
       } else {
           $.each(matchingIssues, function (index, issue) {
-              var description = formatChangelogEntry(issue, issue.authors);
+              var description = formatChangelogEntry(issue, issue.assignees);
 
               $('#issues').append('<li>' + description + '</li>' + "\n");
           });
-      }
+    }
+
       
     });
     
@@ -205,6 +245,7 @@ function onStart()
     $('#issues').html('');
     $('#go').attr('disabled', 'disabled');
     $('#goReleases').attr('disabled', 'disabled');
+    $('#goBetweenReleases').attr('disabled', 'disabled');
     $('#status').text('Fetching issues in progress');
     $('#numIssues').text('');
 }
@@ -219,6 +260,8 @@ function onEnd(repository)
 
     $('#go').attr('disabled', null);
     $('#goReleases').attr('disabled', null);
+
+    $('#goBetweenReleases').attr('disabled', null);
     $('#status').text('');
 
     var numIssuesClosed = $('#issues').find('li:not(.notAnIssue)').length;
@@ -264,10 +307,123 @@ function formatChangelogEntry(issue, authors)
     var description = '<a href="' + issue.html_url + '">#' + issue.number + '</a> ' + encodedStr(issue.title);
 
     if (authors && authors.length) {
-        description += ' [by ' + authors.join(', ') + ']';
+        description += ' [by ' + _.pluck(authors, 'login').join(', ') + ']';
     }
 
     return description;
+}
+
+function logContribution(commits, issues, storyPoints, name, fullname, arr) {
+    if (_.some(arr, function(c) { return c.name === name; })) {
+        //edit
+        _.each(arr, function (c) {
+            if (c.name === name) {
+                c.commits += commits;
+                c.issues += issues;
+                c.storyPoints += storyPoints;
+                if (fullname && fullname !== "" && !c.fullname) {
+                    c.fullname = fullname;
+                }
+            }
+        });
+        return arr;
+    } else {
+        //add new
+        arr.push({ name: name, commits: commits, issues: issues, storyPoints: storyPoints, fullname: fullname });
+        return arr;
+    }
+}
+
+function renderContributors(contributors) {
+    $("#contributors")[0].innerHTML = "";
+
+    contributors = _.sortBy(contributors, function (c) { return 1000 - c.storyPoints; });
+
+    var str = "### Contributors";
+    var points = 0;
+    var commits = 0;
+    var issues = 0;
+
+    _.each(contributors, function (c) {
+        str = str + "<p>**" + c.fullname + "** Story Points: " + c.storyPoints + " Issues: " + c.issues + " Commits: " + c.commits + "</p>";
+        points += c.storyPoints;
+        issues += c.issues;
+        commits += c.commits;
+    });
+
+    str = str + "<p>**Total:** Story Points: " + points + " Issues: " + issues + " Commits: " + commits + "</p>";
+    $("#contributors")[0].innerHTML = str;
+
+    
+}
+
+function fetchIssuesFromTaggedCommits(repository, issues, fromTag, toTag) {
+
+    callGithubApi({
+        service: "repos/" + repository,
+        success: function(repo, xhr) {
+
+            var contributors = [];
+
+            callGithubApi({
+                service: 'repos/' + repository + '/compare/' + fromTag + "..." + toTag,
+                //data : {since: isoDate, state: 'closed', direction: 'asc', filter: 'all', page: page},
+                success: function (result, xhr) {
+                    var issuesAdded = [];
+                    var re = /#[0-9]+/g;
+                    $.each(result.commits, function (index, commit) {
+                        //console.log(commit);
+                        var num = re.exec(commit.commit.message);
+                        while (num !== null) {
+                            if (!_.contains(issuesAdded, num[0].substr(1))) {
+                                issuesAdded.push(num[0].substr(1));
+                            }
+                            num = re.exec(commit.message);
+                        }
+
+                        contributors = logContribution(1, 0, 0, commit.author.login, commit.commit.author.name, contributors);
+
+                    });
+
+                    $.each(issuesAdded, function (i, issue) {
+                        callGithubApi({
+                            service: "repos/" + repository + "/issues/" + issue,
+                            success: function (result, xhr) {
+                                //console.log(result);
+                                issues.push(result);
+                                if (issuesAdded.length === issues.length) {
+                                    renderIssues(repository, issues);
+
+
+                                    _.each(issues, function (issue) {
+                                        _.each(issue.assignees, function(assignee) {
+                                            contributors = logContribution(0, 1, 0, assignee.login, "", contributors);
+                                        });
+                                        
+                                    });
+                                    _.each(issues, function(issue) {
+                                        _.each(issue.assignees, function(assignee) {
+                                            getStoryPoints(repository, repo.id, issue.number, assignee.login, contributors, function(points, name, contribs) {
+                                                contribs = logContribution(0, 0, points, name, "", contribs);
+                                                renderContributors(contribs);
+                                            });
+
+                                        });
+
+                                    });
+                                    onEnd(repository);
+                                }
+                            }
+                        }, false);
+
+                    });
+
+                },
+            }, false);
+        }
+    },false);
+
+
 }
 
 function fetchIssuesSince (repository, issues, isoDate, page)
@@ -507,6 +663,67 @@ function getRepositories()
 function getAuthToken()
 {
     return $('#authtoken').val();
+}
+
+var zenhubToken = "";
+
+function getZenhubAuthToken() {
+    return config.zenhubToken;
+}
+
+function callZenhubApi(params, expectArray) {
+    if (limitExceeded) {
+        console.log('Ignoring call to GitHub API, limit exceeded', params);
+        return;
+    }
+
+    if (0 === params.service.indexOf('https://')) {
+        params.url = params.service;
+    } else {
+        params.url = "https://api.zenhub.io/p1/" + params.service;//repositories/:repo_id/issues/:issue_number
+    }
+
+    params.error = function (result) {
+        console.log('error fetching resource', result);
+
+        var message = 'Error while requesting GitHub API: ';
+
+        if (result && result.responseJSON && result.responseJSON.message) {
+            message += result.responseJSON.message;
+        } else {
+            message += 'see console';
+        }
+
+        alert(message);
+        onEnd();
+    };
+
+    if (getAuthToken()) {
+        params.headers = { "X-Authentication-Token": getZenhubAuthToken() };
+    }
+
+    if ($.support.cors) {
+        var success = params.success;
+        if ($.isFunction(success)) {
+            params.success = function (result, status, xhr) {
+                console.log('got api response', arguments);
+
+                if (!result || (expectArray && !$.isArray(result))) {
+                    alert('Got an unexpected response');
+                    return;
+                }
+
+                logXRateLimit(xhr);
+
+                success.call(this, result, xhr)
+            }
+        }
+    } else {
+        alert('CORS is not supported, please try another browser');
+        return;
+    }
+
+    $.ajax(params);
 }
 
 function callGithubApi(params, expectArray)
