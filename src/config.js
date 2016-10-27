@@ -18,6 +18,7 @@ config.repository = 'MathsPathway/app';
  * @type {string}
  */
 config.oauthToken = '';
+config.zenhubToken = null;
 
 /**
  * Ignore issues having at least one of those labels.
